@@ -150,6 +150,9 @@ dt { color: var(--muted); } dd { margin: 0; min-width: 0; overflow-wrap: anywher
 .sentline { margin: 0; font-size: 15px; font-weight: 500; color: var(--accent); }
 button.item { width: 100%; background: none; border: 0; border-top: 1px solid var(--line); text-align: start; }
 button.item[aria-current="true"] { border-inline-start: 4px solid var(--accent); padding-inline-start: 10px; }
+button.item:disabled { opacity: .55; cursor: default; }
+#pick button.item[aria-current="true"] { background: var(--accent-soft); border-radius: 10px; border-top-color: transparent; }
+.pick-empty { margin: 0; color: var(--muted); font-size: 15px; }
 .btn:disabled { opacity: .5; cursor: default; }
 a.btn { text-decoration: none; text-align: center; }
 .link { background: none; border: 0; padding: 6px; color: var(--muted); text-decoration: underline; font-size: 13.5px; }
@@ -196,7 +199,11 @@ a.btn { text-decoration: none; text-align: center; }
   <section id="view-quote" hidden>
     <div>
       <h2>הצעת מחיר בדקה</h2>
-      <p class="sub">את ממלאת ארבעה דברים. ההצעה מוכנה.</p>
+      <p class="sub">בוחרים לקוחה, ממלאים ארבעה דברים, וההצעה מוכנה.</p>
+    </div>
+    <div class="card">
+      <div class="head"><h3>למי לשלוח?</h3><small id="pick-n"></small></div>
+      <div class="list" id="pick"></div>
     </div>
     <div class="card">
       <div class="form">
@@ -414,8 +421,37 @@ a.btn { text-decoration: none; text-align: center; }
   function rate() { return Math.max(0, Number($('#q-rate').value) || 0); }
   function target() { var L = sel && leads[sel]; return L && L.done ? L : null; }
   var sentMsg = '';
-  function note(t) { sentMsg = t; $('#sent').textContent = t || (target() ? '' : 'כשלקוחה תסיים לענות, אפשר יהיה לשלוח לה הצעה מכאן.'); }
+  function note(t) {
+    sentMsg = t;
+    var anyDone = live().some(function (x) { return x.done; });
+    $('#sent').textContent = t || (target() ? '' : anyDone ? 'בחרי למעלה למי לשלוח.' : 'כשלקוחה תסיים לענות, אפשר יהיה לשלוח לה הצעה מכאן.');
+  }
+  function first(n) { return String(n || '').split(' ')[0]; }
+  /* Every client who wrote in, newest first. Tapping one picks who the quote goes to. */
+  function renderPick() {
+    var all = live(), done = all.filter(function (x) { return x.done; });
+    $('#pick-n').textContent = done.length ? (done.length === 1 ? 'לקוחה אחת' : done.length + ' לקוחות') : '';
+    $('#pick').innerHTML = all.length ? all.map(function (x) {
+      var s = state(x), what = [x.lead.service, x.lead.city].filter(Boolean).join(' · ');
+      var pill = x.quote ? '<span class="pill ok">נשלחה הצעה ✓</span>' : '<span class="pill ' + s.status + '">' + s.pill + '</span>';
+      return '<button type="button" class="item" data-id="' + esc(x.id) + '"' + (x.done ? '' : ' disabled') + (x.id === sel && x.done ? ' aria-current="true"' : '') +
+        '><div><b>' + esc(x.lead.name) + '</b><span class="what">' + esc(what || 'עוד עונה…') + '</span></div>' + pill + '</button>';
+    }).join('') : '<p class="pick-empty">עוד אין לקוחות. כשמישהי עונה בצ\'אט, היא מופיעה כאן.</p>';
+  }
+  $('#pick').addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('button.item') : null;
+    if (!b || b.disabled) return;
+    sel = b.dataset.id;
+    var L = leads[sel];
+    if (L && L.quote) {
+      q.team = Number(L.quote.team) || q.team; q.hours = Number(L.quote.hours) || q.hours;
+      if (L.quote.date) $('#q-date').value = L.quote.date;
+      if (L.quote.rate != null) $('#q-rate').value = L.quote.rate;
+    }
+    note(''); renderQuote();
+  });
   function renderQuote() {
+    renderPick();
     var L = target();
     $('#q-team').textContent = q.team; $('#q-hours').textContent = q.hours;
     $('#o-name').textContent = L ? L.lead.name : '—';
@@ -425,7 +461,7 @@ a.btn { text-decoration: none; text-align: center; }
     $('#o-total').textContent = money(rate() * q.team * q.hours);
     var btn = $('#send-quote');
     if (!btn.dataset.busy) btn.disabled = !L;
-    btn.textContent = L && L.quote ? 'לשלוח הצעה מעודכנת' : 'לשלוח ללקוחה';
+    btn.textContent = !L ? 'לשלוח ללקוחה' : (L.quote ? 'לשלוח הצעה מעודכנת ל' : 'לשלוח ל') + first(L.lead.name);
     note(sentMsg);
   }
   document.querySelectorAll('[data-step]').forEach(function (b) {
