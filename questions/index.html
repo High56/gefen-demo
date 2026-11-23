@@ -172,6 +172,10 @@ textarea { resize: vertical; min-height: 64px; line-height: 1.45; }
 .qsec { display: flex; flex-direction: column; gap: 8px; }
 .qsec + .qsec { border-top: 1px solid var(--line); padding-top: 14px; }
 .signs { display: flex; flex-direction: column; gap: 6px; }
+.newtag { display: inline-block; font-family: var(--font-body); font-size: 12px; font-weight: 700; color: var(--pink); border: 1.5px solid var(--pink); border-radius: 999px; padding: 0 8px; margin-inline-start: 6px; vertical-align: middle; }
+.cond { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 10px; }
+select.txt { appearance: auto; }
+.when { font-size: 13.5px; font-weight: 500; color: var(--gold); margin: 0; }
 
 .bar { position: fixed; inset: auto 0 0; z-index: 9; background: var(--surface); border-top: 1px solid var(--line); padding: 10px 0 max(10px, env(safe-area-inset-bottom, 0px)); }
 .bar .row { flex-wrap: nowrap; }
@@ -207,6 +211,7 @@ textarea { resize: vertical; min-height: 64px; line-height: 1.45; }
       <h2>מה הבוט ישאל לקוחות חדשים?</h2>
       <p class="sub">כאן את מחליטה. כתבתי כבר הצעה, ואת יכולה לשנות כל מילה.</p>
     </div>
+    <p class="tip" id="newtip" hidden>חדש: הוספתי שאלה על אריזה ושאלה על חומרי אריזה עם משלוח עד הבית. הן מופיעות רק במעבר דירה, ומסומנות "חדש". אפשר לשנות או למחוק אותן. <button type="button" class="linkbtn" id="newtip-ok">הבנתי</button></p>
     <p class="tip">אפשר לעצור באמצע ולחזור אחר כך. מה שכתבת נשמר בטלפון הזה. כשתסיימי, לוחצים "לשלוח" למטה.</p>
 
     <div class="card">
@@ -356,10 +361,16 @@ textarea { resize: vertical; min-height: 64px; line-height: 1.45; }
   var KEY = 'gefen-questions-v1';
   var BACKUP = 'https://ntfy.sh/gfn-q-3de011b4c15e28f16bf74a42';
 
+  var PACK_TEXT = 'מה תרצי שנעשה במעבר?';
+  var PACK_OPTS = ['אריזה', 'פריקה וסידור', 'גם וגם'];
+  var MAT_TEXT = 'תרצי גם הצעת מחיר לחומרי אריזה, עם משלוח עד הבית?\nקרטונים, דבקים, ניירות אריזה ופצפצים.';
+  var MAT_OPTS = ['כן, אשמח', 'לא, תודה'];
   var DEFAULT = {
     open: 'היי [שם], כאן העוזרת הדיגיטלית של גפן ארגון וסידור בתים 🌿\nקיבלנו את הפנייה שלך. כמה שאלות קצרות, וכך נוכל לחזור אלייך עם הצעת מחיר מדויקת.',
     qs: [
-      { text: 'במה נוכל לעזור?', type: 'buttons', opts: ['מעבר דירה', 'סידור וארגון הבית', 'משהו אחר'] },
+      { id: 'service', text: 'במה נוכל לעזור?', type: 'buttons', opts: ['מעבר דירה', 'סידור וארגון הבית', 'משהו אחר'] },
+      { id: 'pack', text: PACK_TEXT, type: 'buttons', opts: PACK_OPTS.slice(), when: { id: 'service', ans: ['מעבר דירה'] } },
+      { id: 'materials', text: MAT_TEXT, type: 'buttons', opts: MAT_OPTS.slice(), when: { id: 'pack', ans: ['אריזה', 'גם וגם'] } },
       { text: 'באיזו עיר? (במעבר דירה: מאיפה לאן)', type: 'text', opts: [] },
       { text: 'מתי צריך?', type: 'buttons', opts: ['בשבועיים הקרובים', 'בחודש הקרוב', 'עוד אין תאריך'] },
       { text: 'מה גודל הבית?', type: 'buttons', opts: ['1 עד 2 חדרים', '3 עד 4 חדרים', '5 חדרים ומעלה'] },
@@ -368,11 +379,37 @@ textarea { resize: vertical; min-height: 64px; line-height: 1.45; }
       { text: 'ושאלה אחרונה: איך שמעת עלינו?', type: 'buttons', opts: ['פייסבוק', 'אינסטגרם', 'המלצה של חברה', 'מדרג', 'גוגל', 'ChatGPT', 'אחר'] }
     ],
     close: 'תודה! העברנו את כל הפרטים, ונחזור אלייך בהקדם עם הצעת מחיר.\nרוצה לדבר עם מישהי מהצוות? כתבי "שיחה" ונתקשר אלייך.',
-    d: { areas: ['השרון', 'השפלה', 'המרכז', 'הדרום'] }
+    d: { areas: ['השרון', 'השפלה', 'המרכז', 'הדרום'] },
+    v: 2
   };
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
+  function uid() { return 'q' + Math.random().toString(36).slice(2, 9); }
+  /* Answers saved by an earlier version of this page get ids, and the packing questions are added once. */
+  function migrate(s) {
+    if (s.qs.some(function (q) { return !q.off && /חומרי אריזה/.test(q.text || ''); })) return;
+    var live = s.qs.filter(function (q) { return !q.off; });
+    var svc = live.filter(function (q) { return q.type === 'buttons' && q.opts.some(function (o) { return o.trim() === 'מעבר דירה'; }); })[0];
+    var pack = live.filter(function (q) { return q !== svc && q.type === 'buttons' && q.opts.some(function (o) { return /אריזה|פריקה/.test(o); }); })[0];
+    function after(anchor, item) { s.qs.splice(anchor ? s.qs.indexOf(anchor) + 1 : 0, 0, item); }
+    if (!pack) {
+      pack = { id: uid(), text: PACK_TEXT, type: 'buttons', opts: PACK_OPTS.slice(), isNew: true };
+      if (svc) pack.when = { id: svc.id, ans: ['מעבר דירה'] };
+      after(svc || live[0], pack);
+    }
+    var trig = pack.opts.filter(function (o) { return /אריזה|גם/.test(o); });
+    var mat = { id: uid(), text: MAT_TEXT, type: 'buttons', opts: MAT_OPTS.slice(), isNew: true };
+    if (trig.length) mat.when = { id: pack.id, ans: trig };
+    after(pack, mat);
+    s.showNew = true;
+  }
+  function normalize(s) {
+    s.qs.forEach(function (q) { if (!q.id) q.id = uid(); if (!q.opts) q.opts = []; if (q.text == null) q.text = ''; });
+    if ((s.v || 1) < 2) migrate(s);
+    s.v = 2;
+    return s;
+  }
   function load() {
-    try { var s = JSON.parse(localStorage.getItem(KEY)); if (s && s.qs && s.d) return s; } catch (e) {}
+    try { var s = JSON.parse(localStorage.getItem(KEY)); if (s && s.qs && s.d) return normalize(s); } catch (e) {}
     return clone(DEFAULT);
   }
   var st = load();
@@ -389,6 +426,18 @@ textarea { resize: vertical; min-height: 64px; line-height: 1.45; }
   /* ---------- questions ---------- */
   var TYPES = [['buttons', 'בוחרים מכפתורים'], ['text', 'כותבים במילים'], ['video', 'שולחים סרטון']];
   function active() { return st.qs.filter(function (q) { return !q.off; }); }
+  function short(t) { t = String(t || '').replace(/\s+/g, ' ').trim() || 'שאלה בלי טקסט'; return t.length > 40 ? t.slice(0, 40) + '…' : t; }
+  /* Earlier questions with buttons can decide whether a later question is asked. */
+  function triggers(q) {
+    return st.qs.slice(0, st.qs.indexOf(q)).filter(function (x) {
+      return !x.off && x.type === 'buttons' && x.opts.some(function (o) { return o.trim(); });
+    });
+  }
+  function trig(q) {
+    if (!q.when) return null;
+    return triggers(q).filter(function (x) { return x.id === q.when.id; })[0] || null;
+  }
+  function gated(q) { var t = trig(q); return t && q.when.ans.length ? t : null; }
   function render(focus) {
     var n = 0, live = active(), html = '';
     st.qs.forEach(function (q, i) {
@@ -399,7 +448,7 @@ textarea { resize: vertical; min-height: 64px; line-height: 1.45; }
       n++;
       var first = live[0] === q, last = live[live.length - 1] === q;
       html += '<div class="card qcard" data-i="' + i + '">' +
-        '<div class="qtop"><span class="qnum">שאלה ' + n + '</span>' +
+        '<div class="qtop"><span class="qnum">שאלה ' + n + (q.isNew ? '<span class="newtag">חדש</span>' : '') + '</span>' +
         '<button type="button" class="icon" data-a="up" aria-label="להזיז למעלה"' + (first ? ' disabled' : '') + '>↑</button>' +
         '<button type="button" class="icon" data-a="down" aria-label="להזיז למטה"' + (last ? ' disabled' : '') + '>↓</button>' +
         '<button type="button" class="icon del" data-a="del">למחוק</button></div>' +
@@ -415,11 +464,33 @@ textarea { resize: vertical; min-height: 64px; line-height: 1.45; }
           : '<p class="hint">' + (q.type === 'video'
               ? 'הלקוחה מקבלת כפתור לשליחת סרטון, וכפתור "אשלח אחר כך".'
               : 'הלקוחה כותבת תשובה במילים שלה.') + '</p>') +
+        condHtml(q) +
         '</div>';
     });
     $('#qs').innerHTML = html;
     $$('#qs textarea').forEach(grow);
     if (focus) { var el = $(focus); if (el) { el.focus(); el.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' }); } }
+  }
+  function condHtml(q) {
+    var ts = triggers(q), t = trig(q), h = '<div class="cond"><p class="hint">מתי לשאול את זה?</p><div class="chips">' +
+      '<button type="button" class="chip" data-a="always" aria-pressed="' + !q.when + '">תמיד</button>' +
+      '<button type="button" class="chip" data-a="cond" aria-pressed="' + !!q.when + '">רק אחרי תשובה מסוימת</button></div>';
+    if (q.when) {
+      if (!ts.length) h += '<p class="when">אין לפני השאלה הזו שאלה עם כפתורים. בינתיים הבוט ישאל אותה תמיד.</p>';
+      else {
+        h += '<p class="hint">אחרי איזו שאלה?</p><select class="txt" data-a="trig" aria-label="אחרי איזו שאלה">' +
+          (t ? '' : '<option value="" selected>לבחור שאלה</option>') +
+          ts.map(function (x) { return '<option value="' + esc(x.id) + '"' + (t === x ? ' selected' : '') + '>' + esc(short(x.text)) + '</option>'; }).join('') + '</select>';
+        if (t) {
+          h += '<p class="hint">ואיזו תשובה? (אפשר כמה)</p><div class="chips">' +
+            t.opts.filter(function (o) { return o.trim(); }).map(function (o) {
+              return '<button type="button" class="chip" data-a="ans" data-v="' + esc(o) + '" aria-pressed="' + (q.when.ans.indexOf(o) >= 0) + '">' + esc(o) + '</button>';
+            }).join('') + '</div>';
+          if (!q.when.ans.length) h += '<p class="when">בחרי לפחות תשובה אחת. בינתיים הבוט ישאל אותה תמיד.</p>';
+        } else h += '<p class="when">בינתיים הבוט ישאל אותה תמיד.</p>';
+      }
+    }
+    return h + '</div>';
   }
   function cardIndex(el) { var c = el.closest('[data-i]'); return c ? Number(c.dataset.i) : -1; }
   function neighbour(i, dir) {
@@ -429,8 +500,18 @@ textarea { resize: vertical; min-height: 64px; line-height: 1.45; }
   $('#qs').addEventListener('input', function (e) {
     var i = cardIndex(e.target); if (i < 0) return;
     if (e.target.classList.contains('qtext')) { st.qs[i].text = e.target.value; grow(e.target); }
-    else if (e.target.dataset.j != null) st.qs[i].opts[Number(e.target.dataset.j)] = e.target.value;
+    else if (e.target.dataset.j != null) {
+      var j = Number(e.target.dataset.j), old = st.qs[i].opts[j], nv = e.target.value, id = st.qs[i].id;
+      st.qs[i].opts[j] = nv;
+      st.qs.forEach(function (d) { if (d.when && d.when.id === id) { var k = d.when.ans.indexOf(old); if (k >= 0) d.when.ans[k] = nv; } });
+    }
     save();
+  });
+  $('#qs').addEventListener('change', function (e) {
+    if (e.target.dataset.a !== 'trig') return;
+    var q = st.qs[cardIndex(e.target)];
+    q.when = { id: e.target.value, ans: [] };
+    render(); save();
   });
   $('#qs').addEventListener('click', function (e) {
     var b = e.target.closest('button[data-a]'); if (!b) return;
@@ -448,11 +529,20 @@ textarea { resize: vertical; min-height: 64px; line-height: 1.45; }
     if (a === 'restore') delete q.off;
     if (a === 'type') { q.type = b.dataset.v; if (q.type === 'buttons' && !q.opts.length) q.opts = ['', '']; }
     if (a === 'addopt') { q.opts.push(''); focus = '[data-i="' + i + '"] input[data-j="' + (q.opts.length - 1) + '"]'; }
-    if (a === 'delopt') q.opts.splice(Number(b.dataset.j), 1);
+    if (a === 'delopt') {
+      var gone = q.opts.splice(Number(b.dataset.j), 1)[0];
+      st.qs.forEach(function (d) { if (d.when && d.when.id === q.id) { var k = d.when.ans.indexOf(gone); if (k >= 0) d.when.ans.splice(k, 1); } });
+    }
+    if (a === 'always') delete q.when;
+    if (a === 'cond' && !q.when) { var ts = triggers(q); q.when = { id: ts.length ? ts[ts.length - 1].id : '', ans: [] }; }
+    if (a === 'ans') {
+      var at = q.when.ans.indexOf(b.dataset.v);
+      if (at >= 0) q.when.ans.splice(at, 1); else q.when.ans.push(b.dataset.v);
+    }
     render(focus); save();
   });
   $('#addq').addEventListener('click', function () {
-    st.qs.push({ text: '', type: 'buttons', opts: ['', ''] });
+    st.qs.push({ id: uid(), text: '', type: 'buttons', opts: ['', ''] });
     render('[data-i="' + (st.qs.length - 1) + '"] .qtext'); save();
   });
 
@@ -489,7 +579,7 @@ textarea { resize: vertical; min-height: 64px; line-height: 1.45; }
   });
 
   /* ---------- try it as a customer ---------- */
-  var log = $('#log'), choices = $('#choices'), say = $('#say'), run = 0, sayNext = null;
+  var log = $('#log'), choices = $('#choices'), say = $('#say'), run = 0, sayNext = null, answers = {};
   function scrollChat() {
     var el = !say.hidden ? say : (choices.childElementCount ? choices : log.lastElementChild);
     if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest', behavior: reduce ? 'auto' : 'smooth' });
@@ -510,7 +600,7 @@ textarea { resize: vertical; min-height: 64px; line-height: 1.45; }
     choices.innerHTML = '';
     opts.forEach(function (o) {
       var b = document.createElement('button'); b.type = 'button'; b.className = 'choice'; b.textContent = o.label;
-      b.addEventListener('click', function () { choices.innerHTML = ''; add('out', o.label, o.video); next(); });
+      b.addEventListener('click', function () { choices.innerHTML = ''; add('out', o.label, o.video); next(o.label); });
       choices.appendChild(b);
     });
     scrollChat();
@@ -519,21 +609,24 @@ textarea { resize: vertical; min-height: 64px; line-height: 1.45; }
   say.addEventListener('submit', function (e) {
     e.preventDefault();
     var v = $('#say-in').value.trim(); if (!v || !sayNext) return;
-    var next = sayNext; sayNext = null; say.hidden = true; add('out', v); next();
+    var next = sayNext; sayNext = null; say.hidden = true; add('out', v); next(v);
   });
   function step(list, i) {
     if (i >= list.length) { if (st.close.trim()) bot(st.close.trim()); return; }
     var q = list[i], next = function () { step(list, i + 1); };
     if (!q.text.trim()) return next();
+    var t = gated(q);
+    if (t && q.when.ans.indexOf(answers[t.id]) < 0) return next();
+    var got = function (v) { answers[q.id] = v; next(); };
     bot(q.text.trim(), function () {
       var opts = q.opts.map(function (o) { return o.trim(); }).filter(Boolean);
-      if (q.type === 'video') offer([{ label: '🎥 לשלוח סרטון', video: true }, { label: 'אשלח אחר כך' }], next);
-      else if (q.type === 'buttons' && opts.length) offer(opts.map(function (o) { return { label: o }; }), next);
-      else askText(next);
+      if (q.type === 'video') offer([{ label: '🎥 לשלוח סרטון', video: true }, { label: 'אשלח אחר כך' }], got);
+      else if (q.type === 'buttons' && opts.length) offer(opts.map(function (o) { return { label: o }; }), got);
+      else askText(got);
     });
   }
   function startPreview() {
-    run++; log.innerHTML = ''; choices.innerHTML = ''; say.hidden = true; sayNext = null;
+    run++; log.innerHTML = ''; choices.innerHTML = ''; say.hidden = true; sayNext = null; answers = {};
     var list = active();
     var open = st.open.replace(/\[שם\]/g, 'מיכל').trim();
     if (open) bot(open, function () { step(list, 0); }); else step(list, 0);
@@ -557,11 +650,14 @@ textarea { resize: vertical; min-height: 64px; line-height: 1.45; }
   function val(v) { return v && String(v).trim() ? String(v).trim() : 'לא נענה'; }
   function buildText() {
     var L = ['השאלות לבוט של גפן', '', '*ההודעה הראשונה:*', val(st.open), '', '*השאלות:*'];
-    active().forEach(function (q, i) {
+    var live = active();
+    live.forEach(function (q, i) {
       if (!q.text.trim()) return;
       L.push((i + 1) + '. ' + q.text.trim().replace(/\n/g, ' '));
       var opts = q.opts.map(function (o) { return o.trim(); }).filter(Boolean);
       L.push('   ' + (q.type === 'buttons' && opts.length ? 'תשובות: ' + opts.join(' / ') : '(' + TYPE_TXT[q.type] + ')'));
+      var t = gated(q);
+      if (t) L.push('   (שואלים רק אם בשאלה ' + (live.indexOf(t) + 1) + ' ענו: ' + q.when.ans.join(' / ') + ')');
     });
     var gone = st.qs.filter(function (q) { return q.off && q.text.trim(); });
     if (gone.length) { L.push('', '*מחקתי:*'); gone.forEach(function (q) { L.push('- ' + q.text.trim().replace(/\n/g, ' ')); }); }
@@ -606,11 +702,15 @@ textarea { resize: vertical; min-height: 64px; line-height: 1.45; }
     $('#open').value = st.open; $('#close').value = st.close;
     $$('#decide [data-k]').forEach(function (inp) { inp.value = ''; });
     $('#done').hidden = true;
-    render(); syncChips(); grow($('#open')); grow($('#close'));
+    render(); syncChips(); syncTip(); grow($('#open')); grow($('#close'));
     window.scrollTo(0, 0);
   });
 
   /* ---------- boot ---------- */
+  function syncTip() { $('#newtip').hidden = !st.showNew; }
+  $('#newtip-ok').addEventListener('click', function () { st.showNew = false; syncTip(); save(); });
+  if (st.showNew) save();
+  syncTip();
   render(); syncChips();
   [$('#open'), $('#close')].concat($$('#decide textarea')).forEach(grow);
 })();
