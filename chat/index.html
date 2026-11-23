@@ -145,6 +145,10 @@ dt { color: var(--muted); } dd { margin: 0; min-width: 0; overflow-wrap: anywher
 .log { min-height: 300px; }
 .msg.q { padding: 0; max-width: 100%; width: 100%; background: transparent; box-shadow: none; }
 .btn:disabled { opacity: .5; cursor: default; }
+.msg a { color: var(--accent); font-weight: 500; overflow-wrap: anywhere; }
+.say { display: flex; gap: 8px; padding: 6px 12px 14px; }
+.say input { flex: 1; min-width: 0; height: 44px; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 0 16px; font-size: 16px; }
+.say .btn { flex: none; border-radius: 999px; }
 </style>
 </head>
 <body>
@@ -165,6 +169,10 @@ dt { color: var(--muted); } dd { margin: 0; min-width: 0; overflow-wrap: anywher
       <div class="chat-head"><i>ג</i>גפן ארגון וסידור בתים</div>
       <div class="log" id="log" aria-live="polite"></div>
       <div class="choices" id="choices"></div>
+      <form class="say" id="say" hidden>
+        <input id="say-in" autocomplete="off" aria-label="תשובה">
+        <button class="btn" type="submit">שליחה</button>
+      </form>
     </div>
     <div class="row">
       <button class="btn ghost" id="restart">שיחה חדשה</button>
@@ -181,11 +189,11 @@ dt { color: var(--muted); } dd { margin: 0; min-width: 0; overflow-wrap: anywher
   /* ?room=name gives a separate channel, for testing without touching the main one. */
   var ROOM = ((location.search.match(/[?&]room=([a-z0-9]{1,20})/) || [])[1]) || '';
   var BASE = 'https://ntfy.sh/gfn-3c34d0bcbab6fcabc62662c2' + (ROOM ? '-' + ROOM : '');
-  var KEY = 'gefen-chat-v1';
+  var KEY = 'gefen-chat-v2';
   var NAMES = ['מיכל כהן', 'נועה לוי', 'תמר פרידמן', 'שירה אזולאי', 'הילה ברק', 'ליאת גולן'];
   var NOTE = $('#net').textContent;
 
-  var log = $('#log'), choices = $('#choices');
+  var log = $('#log'), choices = $('#choices'), say = $('#say'), sayIn = $('#say-in'), sayPick = null;
   var st = null, run = 0;
 
   function save() { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {} }
@@ -228,7 +236,7 @@ dt { color: var(--muted); } dd { margin: 0; min-width: 0; overflow-wrap: anywher
 
   /* ---------- chat ---------- */
   function scrollChat() {
-    var last = choices.childElementCount ? choices : log.lastElementChild;
+    var last = !say.hidden ? say : (choices.childElementCount ? choices : log.lastElementChild);
     if (last && last.scrollIntoView) last.scrollIntoView({ block: 'nearest', behavior: reduce ? 'auto' : 'smooth' });
   }
   function fmtDate(v) {
@@ -253,7 +261,7 @@ dt { color: var(--muted); } dd { margin: 0; min-width: 0; overflow-wrap: anywher
     v[0].textContent = st.lead.name || '';
     v[1].textContent = st.lead.service || '';
     v[2].textContent = fmtDate(o.date);
-    v[3].textContent = (team === 1 ? 'מסדרת אחת' : team + ' מסדרות') + ' · ' + hours + ' שעות';
+    v[3].textContent = (team === 1 ? 'אשת צוות אחת' : team + ' נשות צוות') + ' · ' + hours + ' שעות';
     box.querySelector('.total b').textContent = money(rate * team * hours);
     return box;
   }
@@ -262,7 +270,10 @@ dt { color: var(--muted); } dd { margin: 0; min-width: 0; overflow-wrap: anywher
     el.className = 'msg ' + h.s + (h.q ? ' q' : '');
     if (h.q) el.appendChild(quoteEl(h.q));
     else if (h.v) { var v = document.createElement('div'); v.className = 'video'; el.appendChild(v); }
-    else el.textContent = h.t;
+    else String(h.t).split(/(https:\/\/\S+)/).forEach(function (part, k) {
+      if (k % 2) { var a = document.createElement('a'); a.href = part; a.target = '_blank'; a.rel = 'noopener'; a.textContent = part; el.appendChild(a); }
+      else if (part) el.appendChild(document.createTextNode(part));
+    });
     log.appendChild(el);
   }
   function add(side, text, video, quote) {
@@ -293,59 +304,82 @@ dt { color: var(--muted); } dd { margin: 0; min-width: 0; overflow-wrap: anywher
   }
   function showQuote(o) {
     var first = !st.quotes; st.quotes = (st.quotes || 0) + 1; save();
-    bot(first ? 'הצעת המחיר שלך מוכנה 🌿' : 'עדכנו את הצעת המחיר 🌿', function () { add('in', '', false, o); });
+    bot(first ? 'הצעת המחיר שלכם מוכנה 🌿' : 'עדכנו את הצעת המחיר 🌿', function () { add('in', '', false, o); });
   }
+  function askText(text, hint, pick) {
+    bot(text, function () {
+      choices.innerHTML = '';
+      say.hidden = false; sayIn.value = ''; sayIn.placeholder = hint || 'לכתוב תשובה…';
+      sayPick = pick; scrollChat();
+      try { sayIn.focus({ preventScroll: true }); } catch (e) {}
+    });
+  }
+  say.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var v = sayIn.value.trim(), pick = sayPick;
+    if (!v || !pick) return;
+    sayPick = null; say.hidden = true; add('out', v); pick(v); push();
+  });
 
+  /* The questions and wording are the ones Gefen chose in her questions form. */
+  var SERVICES = [
+    { label: 'אריזה לפני מעבר דירה', kind: 'move', pack: true },
+    { label: 'פריקה וסידור לאחר מעבר דירה', kind: 'move', pack: false },
+    { label: 'שירות אריזה ופריקה', kind: 'move', pack: true },
+    { label: 'סידור וארגון הבית', kind: 'org' },
+    { label: 'אחר', kind: 'other' }
+  ];
+  var CLOSING = 'תודה! העברנו את כל הפרטים, ונחזור אליכם בהקדם עם הצעת מחיר.\nרוצים לדבר עם מישהי מהצוות? כתבו "שיחה" ונתקשר אליכם.\n\nמוזמנים להיכנס ולהתרשם 🌸\nhttps://cartisdigitali.com/gefensidur/';
   function start() {
     run++;
     var i = 0;
     try { i = Number(localStorage.getItem(KEY + '-i')) || 0; localStorage.setItem(KEY + '-i', String(i + 1)); } catch (e) {}
     st = { id: newId(), n: 0, done: false, lead: { name: NAMES[i % NAMES.length] }, hist: [], qids: [], quotes: 0 };
-    log.innerHTML = ''; choices.innerHTML = ''; save();
-    bot('היי ' + st.lead.name.split(' ')[0] + ', כאן גפן 🌿\nכמה שאלות קצרות.', qService);
+    log.innerHTML = ''; choices.innerHTML = ''; say.hidden = true; sayPick = null; save();
+    bot('היי ' + st.lead.name.split(' ')[0] + ', כאן העוזרת הדיגיטלית של גפן ארגון וסידור בתים 🌿\nקיבלנו את הפנייה שלכם. כמה שאלות קצרות, וכך נוכל לחזור אליכם עם הצעת מחיר מדויקת.', qService);
   }
   function qService() {
-    ask('במה לעזור?', [{ label: 'מעבר דירה', v: 'move' }, { label: 'סידור הבית', v: 'org' }], function (o) {
-      st.lead.kind = o.v; st.lead.service = o.label; qCity();
+    ask('במה נוכל לעזור?', SERVICES, function (o) {
+      st.lead.kind = o.kind; st.lead.service = o.label;
+      if (o.pack) qMaterials(); else qCity();
     });
+  }
+  function qMaterials() {
+    ask('תרצו גם הצעת מחיר לחומרי אריזה, עם משלוח עד הבית?\nקרטונים, דבקים, ניירות אריזה ופצפצים.',
+      [{ label: 'כן, אשמח', v: true }, { label: 'לא, תודה', v: false }],
+      function (o) { st.lead.materials = o.v; qCity(); });
   }
   function qCity() {
-    var move = st.lead.kind === 'move';
-    var opts = move
-      ? [{ label: 'מרעננה לכפר סבא', area: 'in' }, { label: 'מראשון לרחובות', area: 'in' }, { label: 'מחיפה לקריות', area: 'out' }]
-      : [{ label: 'הרצליה', area: 'in' }, { label: 'חולון', area: 'in' }, { label: 'חיפה', area: 'out' }];
-    ask(move ? 'מאיפה לאן?' : 'באיזו עיר?', opts, function (o) { st.lead.city = o.label; st.lead.area = o.area; qWhen(); });
+    askText('באיזו עיר? (במעבר דירה: מאיפה לאן)', st.lead.kind === 'move' ? 'למשל: מרעננה לכפר סבא' : 'למשל: חולון',
+      function (v) { st.lead.city = v; qWhen(); });
   }
   function qWhen() {
-    ask('מתי?', [{ label: 'בשבועיים הקרובים', v: 'soon' }, { label: 'בחודש הקרוב', v: 'month' }, { label: 'רק מתעניינת', v: 'later' }],
-      function (o) { st.lead.when = o.label; st.lead.whenKey = o.v; qSize(); });
+    ask('למתי צריך את השירות?', [
+      { label: 'בשבועיים הקרובים', v: 'soon' }, { label: 'בחודש הקרוב', v: 'month' },
+      { label: 'עוד אין תאריך', v: 'later' }, { label: 'אשמח לשוחח על התאריך', v: 'talk' }
+    ], function (o) { st.lead.when = o.label; st.lead.whenKey = o.v; qSize(); });
   }
   function qSize() {
-    if (st.lead.kind === 'move') ask('כמה חדרים?', [{ label: '2 עד 3' }, { label: '4' }, { label: '5 ומעלה' }], function (o) { st.lead.size = o.label + ' חדרים'; qVideo(); });
-    else ask('מה לסדר?', [{ label: 'ארונות' }, { label: 'מטבח' }, { label: 'חדרי ילדים' }, { label: 'כל הבית' }], function (o) { st.lead.size = o.label; qVideo(); });
+    var move = st.lead.kind === 'move';
+    askText(move ? 'כמה חדרים יש בבית לארוז, וכמה לפרוק?' : 'כמה חדרים צריך לסדר?',
+      move ? 'למשל: 4 חדרים לארוז, 3 לפרוק' : 'למשל: 2 חדרים ומטבח',
+      function (v) { st.lead.size = v; qVideo(); });
   }
   function qVideo() {
-    ask('אפשר לשלוח סרטון קצר של הבית?', [{ label: 'שולחת עכשיו', video: true, v: 'yes' }, { label: 'אחר כך', v: 'no' }], function (o) {
-      st.lead.video = o.v === 'yes'; qPrice();
-    });
+    var move = st.lead.kind === 'move';
+    ask('כדי שנדע כמה צוות צריך, שלחו בבקשה סרטון קצר של הבית.\nפשוט לעבור חדר חדר, לפתוח את הארונות והמגירות, ולצלם את כל התכולה' + (move ? ' שנארזת לבית החדש.' : '.'),
+      [{ label: '🎥 שליחת סרטון', video: true, v: true }, { label: 'אשלח אחר כך', v: false }],
+      function (o) { st.lead.video = o.v; qPrice(); });
   }
   function qPrice() {
-    ask('המחיר לפי שעות עבודה.\nהמינימום הוא 5 שעות. מתאים?', [{ label: 'מתאים', v: 'yes' }, { label: 'יקר לי', v: 'no' }], function (o) {
-      st.lead.priceOk = o.v === 'yes'; qSource();
-    });
+    ask('חשוב לדעת: המחיר נקבע לפי שעות העבודה ומספר נשות הצוות. המינימום הוא 5 שעות עבודה. מתאים לכם?',
+      [{ label: 'מתאים', v: 'ok' }, { label: 'יש לי שאלה', v: 'question' }],
+      function (o) { st.lead.priceKey = o.v; qSource(); });
   }
   function qSource() {
-    ask('איך הגעת אלינו?', [{ label: 'פייסבוק' }, { label: 'המלצה' }, { label: 'מדרג' }, { label: 'ChatGPT' }], function (o) {
-      st.lead.source = o.label; st.done = true;
-      bot(closing(st.lead));
-    });
-  }
-  function closing(l) {
-    if (l.area === 'out') return 'תודה! נבדוק אם יש לנו צוות באזור שלך.';
-    if (!l.priceOk) return 'מבינה, תודה שאמרת.\nאם תרצי הצעת מחיר, כתבי לנו כאן.';
-    if (l.whenKey === 'later') return 'תודה! כשיהיה תאריך, כתבי לנו כאן.';
-    if (!l.video) return 'תודה! כשיגיע הסרטון נכין הצעת מחיר.';
-    return 'תודה! נחזור אלייך עם הצעת מחיר.';
+    ask('ושאלה אחרונה: איך שמעתם עלינו?',
+      ['פייסבוק', 'אינסטגרם', 'המלצה של חברה', 'מדרג', 'גוגל', 'ChatGPT', 'אחר'].map(function (l) { return { label: l }; }),
+      function (o) { st.lead.source = o.label; st.done = true; bot(CLOSING); });
   }
   $('#restart').addEventListener('click', start);
 

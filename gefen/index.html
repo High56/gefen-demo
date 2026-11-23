@@ -200,8 +200,8 @@ a.btn { text-decoration: none; text-align: center; }
     </div>
     <div class="card">
       <div class="form">
-        <div class="field"><label id="l-team">מסדרות</label>
-          <div class="stepper" aria-labelledby="l-team"><button type="button" data-step="team" data-d="1" aria-label="להוסיף מסדרת">+</button><output id="q-team">2</output><button type="button" data-step="team" data-d="-1" aria-label="להוריד מסדרת">−</button></div>
+        <div class="field"><label id="l-team">נשות צוות</label>
+          <div class="stepper" aria-labelledby="l-team"><button type="button" data-step="team" data-d="1" aria-label="להוסיף אשת צוות">+</button><output id="q-team">2</output><button type="button" data-step="team" data-d="-1" aria-label="להוריד אשת צוות">−</button></div>
         </div>
         <div class="field"><label id="l-hours">שעות</label>
           <div class="stepper" aria-labelledby="l-hours"><button type="button" data-step="hours" data-d="1" aria-label="להוסיף שעה">+</button><output id="q-hours">7</output><button type="button" data-step="hours" data-d="-1" aria-label="להוריד שעה">−</button></div>
@@ -320,12 +320,16 @@ a.btn { text-decoration: none; text-align: center; }
   }
 
   /* ---------- summary ---------- */
+  /* Gefen works in the Sharon, Shfela, center, south and Jerusalem. Cities in the north get checked first. */
+  var FAR = /חיפה|קריות|קריית (ביאליק|מוצקין|אתא|ים|שמונה|טבעון)|נהרי|עכו|כרמיאל|טבריה|צפת|עפולה|נצרת|יקנעם|גליל|גולן/;
   function score(l) {
-    if (l.area === 'out') return { status: 'no', reason: 'מחוץ לאזור העבודה שלך.' };
-    if (!l.priceOk) return { status: 'no', reason: 'המחיר יקר לה.' };
-    if (l.whenKey === 'later') return { status: 'wait', reason: 'אין לה תאריך עדיין.' };
-    if (!l.video) return { status: 'wait', reason: 'עוד לא שלחה סרטון. היא תקבל תזכורת מחר.' };
-    return { status: 'ok', reason: 'שלחה סרטון, יש תאריך, והיא באזור שלך.' };
+    var extra = l.materials ? ' רוצים גם הצעה לחומרי אריזה.' : '';
+    if (FAR.test(l.city || '')) return { status: 'wait', reason: 'יש כאן עיר מחוץ לאזורים שלך. כדאי לבדוק לפני שמתקשרים.' + extra };
+    if (!l.video) return { status: 'wait', reason: 'עוד לא שלחו סרטון. תזכורת תצא מחר, ושוב אחרי 3 ימים.' + extra };
+    if (l.whenKey === 'later') return { status: 'wait', reason: 'שלחו סרטון, אבל עוד אין תאריך.' + extra };
+    var why = l.whenKey === 'talk' ? 'שלחו סרטון ורוצים לדבר על התאריך.' : 'שלחו סרטון, יש תאריך, והם באזור שלך.';
+    if (l.priceKey === 'question') why += ' יש להם שאלה על המחיר.';
+    return { status: 'ok', reason: why + extra };
   }
   var VERDICT = { ok: 'כדאי להתקשר', wait: 'לחכות', no: 'לא מתאים' };
   var PILL = { ok: 'להתקשר', wait: 'לחכות', no: 'לא מתאים' };
@@ -345,7 +349,7 @@ a.btn { text-decoration: none; text-align: center; }
   function state(L) {
     if (!L.done) {
       var stale = Math.max(lastTime, Date.now() / 1000) - L.last > 600;
-      return stale ? { status: 'wait', title: 'לא סיימה', pill: 'לא סיימה', reason: 'הפסיקה באמצע השאלות.' }
+      return stale ? { status: 'wait', title: 'לא סיימו', pill: 'לא סיימו', reason: 'הפסיקו באמצע השאלות.' }
                    : { status: 'live', title: 'עונה עכשיו…', pill: 'עונה עכשיו', reason: 'הפרטים מתמלאים לבד.' };
     }
     var s = score(L.lead);
@@ -364,8 +368,10 @@ a.btn { text-decoration: none; text-align: center; }
       card.innerHTML =
         '<div class="head"><h3>' + esc(l.name) + '</h3><small>התקבלה ב־' + esc(clock(L.time)) + '</small></div>' +
         '<div class="verdict ' + s.status + '"><b>' + s.title + '</b><span>' + esc(s.reason) + '</span></div>' +
-        '<dl>' + row('שירות', l.service) + row(move ? 'מאיפה לאן' : 'עיר', l.city) + row('מתי', l.when) +
-        row(move ? 'גודל' : 'מה לסדר', l.size) + (l.video == null ? '' : row('סרטון', l.video ? 'התקבל' : 'אין עדיין')) + row('שמעה עלייך', l.source) + '</dl>' +
+        '<dl>' + row('שירות', l.service) + (l.materials == null ? '' : row('חומרי אריזה', l.materials ? 'רוצים הצעה' : 'לא צריכים')) +
+        row(move ? 'מאיפה לאן' : 'עיר', l.city) + row('מתי', l.when) + row('חדרים', l.size) +
+        (l.video == null ? '' : row('סרטון', l.video ? 'התקבל' : 'אין עדיין')) +
+        (l.priceKey ? row('המחיר', l.priceKey === 'ok' ? 'מתאים להם' : 'יש להם שאלה') : '') + row('שמעו עלייך', l.source) + '</dl>' +
         (L.quote ? '<p class="sentline">הצעת מחיר נשלחה: ' + esc(money(total(L.quote))) + '</p>' : '') +
         (L.done && s.status !== 'no' ? '<div class="row"><button class="btn" id="mk-quote">' + (L.quote ? 'לעדכן הצעה' : 'הצעת מחיר') + '</button><button class="btn ghost" id="call">להתקשר</button></div>' : '');
       var mq = $('#mk-quote'); if (mq) mq.addEventListener('click', function () { show('quote'); });
@@ -415,7 +421,7 @@ a.btn { text-decoration: none; text-align: center; }
     $('#o-name').textContent = L ? L.lead.name : '—';
     $('#o-service').textContent = L ? L.lead.service : '—';
     $('#o-date').textContent = fmtDate($('#q-date').value);
-    $('#o-team').textContent = (q.team === 1 ? 'מסדרת אחת' : q.team + ' מסדרות') + ' · ' + q.hours + ' שעות';
+    $('#o-team').textContent = (q.team === 1 ? 'אשת צוות אחת' : q.team + ' נשות צוות') + ' · ' + q.hours + ' שעות';
     $('#o-total').textContent = money(rate() * q.team * q.hours);
     var btn = $('#send-quote');
     if (!btn.dataset.busy) btn.disabled = !L;
